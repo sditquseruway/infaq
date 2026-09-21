@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -34,6 +35,10 @@
     h1 { max-width:850px; margin:0; color:#fff; font-size:clamp(21px,4vw,34px); line-height:1.2; }
     .subtitle { margin:7px 0 0; color:#dbeee3; font-size:14px; line-height:1.55; }
     main { width:min(960px,calc(100% - 28px)); margin:-18px auto 48px; position:relative; z-index:2; }
+    .arrears-total { margin-bottom:14px; padding:20px 22px; color:#fff; background:var(--danger); border:1px solid #8f1c14; border-radius:8px; box-shadow:0 14px 34px rgba(180,35,24,.22); text-align:center; }
+    .arrears-total-label { margin:0 0 8px; font-size:13px; font-weight:900; line-height:1.45; text-transform:uppercase; }
+    .arrears-total-value { margin:0; font-size:clamp(27px,5vw,42px); font-weight:900; line-height:1.1; }
+    .arrears-total-note { margin:8px 0 0; color:#ffe5e2; font-size:11px; line-height:1.45; }
     .search-panel { padding:22px; background:var(--surface); border:1px solid var(--line); border-top:5px solid var(--gold); border-radius:8px; box-shadow:var(--shadow); }
     .search-title { margin:0 0 6px; color:var(--green-900); font-size:18px; }
     .search-note { margin:0 0 16px; color:var(--muted); font-size:13px; line-height:1.5; }
@@ -100,6 +105,10 @@
       .logo-wrap img { width:51px; height:51px; }
       .subtitle { font-size:12px; }
       main { width:calc(100% - 20px); }
+      .arrears-total { margin-bottom:12px; padding:14px 12px; }
+      .arrears-total-label { margin-bottom:5px; font-size:11px; line-height:1.35; }
+      .arrears-total-value { font-size:28px; }
+      .arrears-total-note { margin-top:5px; font-size:10px; }
       .search-panel { padding:17px 14px; }
       .summary { grid-template-columns:1fr; }
       .summary-item { padding:15px 17px; border-right:0; border-bottom:1px solid var(--line); }
@@ -126,6 +135,12 @@
   </header>
 
   <main>
+    <section class="arrears-total" aria-live="polite" aria-labelledby="arrears-total-label">
+      <p id="arrears-total-label" class="arrears-total-label">TOTAL TUNGGAKAN SANTRI SAMPAI BULAN <span id="current-month">—</span></p>
+      <p id="all-arrears-total" class="arrears-total-value">Memuat…</p>
+      <p id="arrears-total-note" class="arrears-total-note">Menghitung total dari data tunggakan yayasan.</p>
+    </section>
+
     <section class="search-panel" aria-labelledby="search-title">
       <h2 class="search-title" id="search-title">Cari Nama Santri</h2>
       <p class="search-note">Ketik minimal 1 huruf, lalu pilih nama santri untuk melihat rincian pembayaran.</p>
@@ -206,6 +221,18 @@
     const getName = row => normalizeName(getColValue(row,["NAMA SANTRI 2026","Nama Santri","Nama Siswa","Nama"]));
     function parseNumeric(value) { return parseInt(String(value || "").replace(/[^\d-]/g,""),10) || 0; }
     function rupiah(value) { return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",minimumFractionDigits:0}).format(value || 0); }
+    function setCurrentMonth() {
+      const monthYear = new Intl.DateTimeFormat("id-ID",{month:"long",year:"numeric"}).format(new Date());
+      $("current-month").textContent = monthYear.toLocaleUpperCase("id-ID");
+    }
+    function updateAllArrearsTotal() {
+      const summaryRow = dataTunggakan.find(row => normalizeName(getColValue(row,["Pembayaran"])).toLocaleLowerCase("id-ID") === "total tunggakan");
+      const total = summaryRow
+        ? parseNumeric(getColValue(summaryRow,["TUNGGAKAN"]))
+        : dataTunggakan.filter(row => getName(row)).reduce((sum,row) => sum + parseNumeric(getColValue(row,["TUNGGAKAN"])),0);
+      $("all-arrears-total").textContent = rupiah(total);
+      $("arrears-total-note").textContent = "Total seluruh tunggakan santri yang tercatat saat ini.";
+    }
     function setOnlyState(id) {
       ["loading-state","empty-state","not-found-state","error-state","student-result"].forEach(key => $(key).classList.toggle("hidden", key !== id));
     }
@@ -224,8 +251,8 @@
         const [tunggakanCSV,pembayaranCSV] = await Promise.all([tunggakanResponse.text(),pembayaranResponse.text()]);
         dataTunggakan = Papa.parse(tunggakanCSV,{header:true,skipEmptyLines:true}).data;
         dataPembayaran = Papa.parse(pembayaranCSV,{header:true,skipEmptyLines:true}).data;
-        buildStudentNames(); setOnlyState("empty-state"); $("student-search").disabled = false; $("student-search").focus();
-      } catch (error) { console.error(error); setOnlyState("error-state"); }
+        buildStudentNames(); updateAllArrearsTotal(); setOnlyState("empty-state"); $("student-search").disabled = false; $("student-search").focus();
+      } catch (error) { console.error(error); $("all-arrears-total").textContent = "Belum tersedia"; $("arrears-total-note").textContent = "Total tunggakan belum dapat dimuat. Silakan muat ulang halaman."; setOnlyState("error-state"); }
     }
     function showSuggestions(query) {
       const box = $("suggestions"); box.innerHTML = "";
@@ -247,7 +274,7 @@
       const account = dataTunggakan.find(r => getName(r).toLocaleLowerCase("id-ID") === key) || {};
       const payments = dataPembayaran.filter(r => getName(r).toLocaleLowerCase("id-ID") === key);
       const totalPaid = payments.reduce((sum,row) => sum + parseNumeric(getColValue(row,["PEMBAYARAN"])),0);
-      const totalDue = parseNumeric(getColValue(account,["TOTAL TUNGGAKAN","Tunggakan"]));
+      const totalDue = parseNumeric(getColValue(account,["TUNGGAKAN"]));
       $("student-name").textContent = name.toUpperCase();
       $("student-meta").textContent = `${getColValue(account,["Jenjang"]) || getColValue(payments[0] || {},["Jenjang"]) || "Santri"} · Data pembayaran tercatat yayasan`;
       $("total-paid").textContent = rupiah(totalPaid); $("total-due").textContent = rupiah(totalDue);
@@ -270,6 +297,7 @@
       setOnlyState("student-result");
     }
     $("student-search").disabled = true;
+    setCurrentMonth();
     $("student-search").addEventListener("input",event => { selectedName=""; $("clear-search").style.display=event.target.value ? "block" : "none"; showSuggestions(event.target.value); });
     $("student-search").addEventListener("keydown",event => { if (event.key === "Escape") $("suggestions").classList.add("hidden"); });
     $("clear-search").addEventListener("click",() => { selectedName=""; $("student-search").value=""; $("clear-search").style.display="none"; $("suggestions").classList.add("hidden"); setOnlyState("empty-state"); $("student-search").focus(); });
