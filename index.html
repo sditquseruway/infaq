@@ -35,6 +35,10 @@
     h1 { max-width:850px; margin:0; color:#fff; font-size:clamp(21px,4vw,34px); line-height:1.2; }
     .subtitle { margin:7px 0 0; color:#dbeee3; font-size:14px; line-height:1.55; }
     main { width:min(960px,calc(100% - 28px)); margin:-18px auto 48px; position:relative; z-index:2; }
+    .arrears-total { margin-bottom:14px; padding:20px 22px; color:#fff; background:var(--danger); border:1px solid #8f1c14; border-radius:8px; box-shadow:0 14px 34px rgba(180,35,24,.22); text-align:center; }
+    .arrears-total-label { margin:0 0 8px; font-size:13px; font-weight:900; line-height:1.45; text-transform:uppercase; }
+    .arrears-total-value { margin:0; font-size:clamp(27px,5vw,42px); font-weight:900; line-height:1.1; }
+    .arrears-total-note { margin:8px 0 0; color:#ffe5e2; font-size:11px; line-height:1.45; }
     .search-panel { padding:22px; background:var(--surface); border:1px solid var(--line); border-top:5px solid var(--gold); border-radius:8px; box-shadow:var(--shadow); }
     .search-title { margin:0 0 6px; color:var(--green-900); font-size:18px; }
     .search-note { margin:0 0 16px; color:var(--muted); font-size:13px; line-height:1.5; }
@@ -101,6 +105,10 @@
       .logo-wrap img { width:51px; height:51px; }
       .subtitle { font-size:12px; }
       main { width:calc(100% - 20px); }
+      .arrears-total { margin-bottom:12px; padding:14px 12px; }
+      .arrears-total-label { margin-bottom:5px; font-size:11px; line-height:1.35; }
+      .arrears-total-value { font-size:28px; }
+      .arrears-total-note { margin-top:5px; font-size:10px; }
       .search-panel { padding:17px 14px; }
       .summary { grid-template-columns:1fr; }
       .summary-item { padding:15px 17px; border-right:0; border-bottom:1px solid var(--line); }
@@ -127,6 +135,12 @@
   </header>
 
   <main>
+    <section class="arrears-total" aria-live="polite" aria-labelledby="arrears-total-label">
+      <p id="arrears-total-label" class="arrears-total-label">TOTAL TUNGGAKAN SANTRI SAMPAI BULAN <span id="current-month">—</span></p>
+      <p id="all-arrears-total" class="arrears-total-value">Memuat…</p>
+      <p id="arrears-total-note" class="arrears-total-note">Menghitung total dari data tunggakan yayasan.</p>
+    </section>
+
     <section class="search-panel" aria-labelledby="search-title">
       <h2 class="search-title" id="search-title">Cari Nama Santri</h2>
       <p class="search-note">Ketik minimal 1 huruf, lalu pilih nama santri untuk melihat rincian pembayaran.</p>
@@ -164,9 +178,9 @@
         <div class="section-heading"><h3><i class="fa-solid fa-receipt"></i> Riwayat Pembayaran Lengkap</h3><span id="history-count" class="count">0 transaksi</span></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th class="center">No</th><th>Tanggal</th><th>Bulan</th><th>Keterangan Bayar</th><th>Rincian</th><th>Dibayar Kepada</th><th class="num">Pembayaran</th></tr></thead>
+            <thead><tr><th class="center">No Urut</th><th>No Kode Bayar</th><th>Tanggal</th><th id="payment-note-head">Keterangan Bayar</th><th>Rincian</th><th class="num">Pembayaran</th></tr></thead>
             <tbody id="history-body"></tbody>
-            <tfoot><tr><td colspan="6">TOTAL PEMBAYARAN TERCATAT</td><td id="history-total" class="num">Rp0</td></tr></tfoot>
+            <tfoot><tr><td id="history-total-label" colspan="5">TOTAL PEMBAYARAN TERCATAT</td><td id="history-total" class="num">Rp0</td></tr></tfoot>
           </table>
         </div>
       </div>
@@ -205,8 +219,21 @@
       return "";
     }
     const getName = row => normalizeName(getColValue(row,["NAMA SANTRI 2026","Nama Santri","Nama Siswa","Nama"]));
+    const getPaymentCode = row => String(Object.values(row || {})[0] || "").trim();
     function parseNumeric(value) { return parseInt(String(value || "").replace(/[^\d-]/g,""),10) || 0; }
     function rupiah(value) { return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",minimumFractionDigits:0}).format(value || 0); }
+    function setCurrentMonth() {
+      const monthYear = new Intl.DateTimeFormat("id-ID",{month:"long",year:"numeric"}).format(new Date());
+      $("current-month").textContent = monthYear.toLocaleUpperCase("id-ID");
+    }
+    function updateAllArrearsTotal() {
+      const summaryRow = dataTunggakan.find(row => normalizeName(getColValue(row,["Pembayaran"])).toLocaleLowerCase("id-ID") === "total tunggakan");
+      const total = summaryRow
+        ? parseNumeric(getColValue(summaryRow,["TUNGGAKAN"]))
+        : dataTunggakan.filter(row => getName(row)).reduce((sum,row) => sum + parseNumeric(getColValue(row,["TUNGGAKAN"])),0);
+      $("all-arrears-total").textContent = rupiah(total);
+      $("arrears-total-note").textContent = "Total seluruh tunggakan santri yang tercatat saat ini.";
+    }
     function setOnlyState(id) {
       ["loading-state","empty-state","not-found-state","error-state","student-result"].forEach(key => $(key).classList.toggle("hidden", key !== id));
     }
@@ -225,8 +252,8 @@
         const [tunggakanCSV,pembayaranCSV] = await Promise.all([tunggakanResponse.text(),pembayaranResponse.text()]);
         dataTunggakan = Papa.parse(tunggakanCSV,{header:true,skipEmptyLines:true}).data;
         dataPembayaran = Papa.parse(pembayaranCSV,{header:true,skipEmptyLines:true}).data;
-        buildStudentNames(); setOnlyState("empty-state"); $("student-search").disabled = false; $("student-search").focus();
-      } catch (error) { console.error(error); setOnlyState("error-state"); }
+        buildStudentNames(); updateAllArrearsTotal(); setOnlyState("empty-state"); $("student-search").disabled = false; $("student-search").focus();
+      } catch (error) { console.error(error); $("all-arrears-total").textContent = "Belum tersedia"; $("arrears-total-note").textContent = "Total tunggakan belum dapat dimuat. Silakan muat ulang halaman."; setOnlyState("error-state"); }
     }
     function showSuggestions(query) {
       const box = $("suggestions"); box.innerHTML = "";
@@ -248,29 +275,37 @@
       const account = dataTunggakan.find(r => getName(r).toLocaleLowerCase("id-ID") === key) || {};
       const payments = dataPembayaran.filter(r => getName(r).toLocaleLowerCase("id-ID") === key);
       const totalPaid = payments.reduce((sum,row) => sum + parseNumeric(getColValue(row,["PEMBAYARAN"])),0);
-      const totalDue = parseNumeric(getColValue(account,["TOTAL TUNGGAKAN","Tunggakan"]));
+      const totalDue = parseNumeric(getColValue(account,["TUNGGAKAN"]));
+      const hasArrears = totalDue > 0;
       $("student-name").textContent = name.toUpperCase();
       $("student-meta").textContent = `${getColValue(account,["Jenjang"]) || getColValue(payments[0] || {},["Jenjang"]) || "Santri"} · Data pembayaran tercatat yayasan`;
-      $("total-paid").textContent = rupiah(totalPaid); $("total-due").textContent = rupiah(totalDue);
+      $("total-paid").textContent = rupiah(totalPaid);
+      $("total-due").textContent = hasArrears ? rupiah(totalDue) : "LUNAS";
+      $("total-due").className = `summary-value ${hasArrears ? "danger" : ""}`;
       $("monthly-fee").textContent = rupiah(parseNumeric(getColValue(account,["Bayar Bulanan","BAYAR BULANAN"])));
       $("student-level").textContent = getColValue(account,["Jenjang"]) || getColValue(payments[0] || {},["Jenjang"]) || "—";
       $("student-class").textContent = getColValue(account,["Kelas"]) || "—";
       $("student-track").textContent = getColValue(account,["Masuk Jalur","Jalur Masuk"]) || "—";
-      $("due-months").textContent = getColValue(account,["Bulan"]) || (totalDue > 0 ? "Ada tunggakan" : "Tidak ada");
-      const status = $("payment-status"); status.textContent = totalDue > 0 ? "Ada Tunggakan" : "Tidak Ada Tunggakan"; status.className = `status ${totalDue > 0 ? "menunggak" : "lunas"}`;
+      $("due-months").textContent = hasArrears ? (getColValue(account,["Bulan"]) || "Ada tunggakan") : "LUNAS";
+      const status = $("payment-status"); status.textContent = hasArrears ? "Ada Tunggakan" : "LUNAS"; status.className = `status ${hasArrears ? "menunggak" : "lunas"}`;
       const body = $("history-body"); body.innerHTML = "";
+      const showPaymentNote = payments.some(row => normalizeName(getColValue(row,["KETERANGAN BAYAR"])));
+      $("payment-note-head").classList.toggle("hidden", !showPaymentNote);
+      $("history-total-label").colSpan = showPaymentNote ? 5 : 4;
       payments.forEach((row,index) => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td class="center">${index+1}</td><td>${escapeHTML(getColValue(row,["TANGGAL","Tanggal","Tgl"]) || "—")}</td><td>${escapeHTML(getColValue(row,["BULAN","Bulan"]) || "—")}</td><td>${escapeHTML(getColValue(row,["KETERANGAN BAYAR"]) || "—")}</td><td>${escapeHTML(getColValue(row,["KETERANGAN","Ket"]) || "—")}</td><td>${escapeHTML(getColValue(row,["DIBAYAR KEPADA"]) || "—")}</td><td class="num"><strong>${rupiah(parseNumeric(getColValue(row,["PEMBAYARAN"])))}</strong></td>`;
+        const paymentNoteCell = showPaymentNote ? `<td>${escapeHTML(getColValue(row,["KETERANGAN BAYAR"]))}</td>` : "";
+        tr.innerHTML = `<td class="center">${index+1}</td><td>${escapeHTML(getPaymentCode(row) || "—")}</td><td>${escapeHTML(getColValue(row,["TANGGAL","Tanggal","Tgl"]) || "—")}</td>${paymentNoteCell}<td>${escapeHTML(getColValue(row,["KETERANGAN","Ket"]) || "—")}</td><td class="num"><strong>${rupiah(parseNumeric(getColValue(row,["PEMBAYARAN"])))}</strong></td>`;
         body.appendChild(tr);
       });
-      if (!payments.length) body.innerHTML = `<tr><td colspan="7" class="empty-row">Belum ada riwayat pembayaran yang tercatat.</td></tr>`;
+      if (!payments.length) body.innerHTML = `<tr><td colspan="5" class="empty-row">Belum ada riwayat pembayaran yang tercatat.</td></tr>`;
       $("history-count").textContent = `${payments.length} transaksi`; $("history-total").textContent = rupiah(totalPaid);
       const message = `Assalamualaikum, saya orang tua/wali santri ${name}. Saya sudah melakukan pembayaran, tetapi data belum tercatat. Mohon bantuan pengecekannya. Terima kasih.`;
       $("wa-button").href = `https://wa.me/${BENDAHARA_WA}?text=${encodeURIComponent(message)}`;
       setOnlyState("student-result");
     }
     $("student-search").disabled = true;
+    setCurrentMonth();
     $("student-search").addEventListener("input",event => { selectedName=""; $("clear-search").style.display=event.target.value ? "block" : "none"; showSuggestions(event.target.value); });
     $("student-search").addEventListener("keydown",event => { if (event.key === "Escape") $("suggestions").classList.add("hidden"); });
     $("clear-search").addEventListener("click",() => { selectedName=""; $("student-search").value=""; $("clear-search").style.display="none"; $("suggestions").classList.add("hidden"); setOnlyState("empty-state"); $("student-search").focus(); });
